@@ -30,7 +30,7 @@ if not settings.password:
 import hashlib
 password_id=hashlib.sha256(settings.password.encode()).hexdigest()
 if st.session_state.get('auth')!=password_id:
-    heading('종완의 투자연구실','KRX · 한국투자증권 모의투자 | 자동 데이터 조회')
+    heading('이종완의 투자연구실','KRX · 한국투자증권 모의투자 | 자동 데이터 조회')
     with st.form('login',clear_on_submit=True):
         entered=st.text_input('접속 비밀번호',type='password')
         submit=st.form_submit_button('로그인',type='primary')
@@ -46,7 +46,7 @@ if st.session_state.get('config_id')!=settings.fingerprint:
     st.session_state.kis=KIS(settings.key,settings.secret,settings.account,settings.product)
 cache=st.session_state.cache;kis=st.session_state.kis
 with st.sidebar:
-    st.markdown('### ◈ 종완의 투자연구실')
+    st.markdown('### ◈ 이종완의 투자연구실')
     st.caption('KRX × KIS · 새 버전 2.1')
     page=st.radio('화면',['시장 · 관심기업','기업 정보표','기업 상세','모의투자 계좌','연결 진단'],label_visibility='collapsed')
     st.divider()
