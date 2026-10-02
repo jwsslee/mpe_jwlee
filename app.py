@@ -8,6 +8,8 @@ import streamlit as st
 from core.api import KRX,KIS,APIError,now
 from core.settings import read_settings
 from core.finance import KISFinancials
+from core.ecos import ECOS
+from core.macro_ui import macro_page
 from core.state import collect
 from core.universe import COMPANIES,DEFAULT_CODES
 from core.catalog import catalog,filter_catalog
@@ -53,13 +55,19 @@ if st.session_state.get('finance_config_id')!=settings.finance_fingerprint:
     for key in list(cache):
         if key.startswith('KIS 실전 실적 '):del cache[key]
 finance=st.session_state.finance
+if st.session_state.get('ecos_config_id')!=settings.ecos_fingerprint:
+    st.session_state.ecos_config_id=settings.ecos_fingerprint
+    st.session_state.ecos=ECOS(settings.ecos)
+    for key in list(cache):
+        if key.startswith('ECOS '):del cache[key]
+ecos=st.session_state.ecos
 with st.sidebar:
     st.markdown('### ◈ 이종완의 투자연구실')
-    st.caption('KRX × KIS · 새 버전 2.2')
-    page=st.radio('화면',['시장 · 관심기업','기업 정보표','기업 상세','모의투자 계좌','연결 진단'],label_visibility='collapsed')
+    st.caption('KRX × KIS × ECOS · 새 버전 2.3')
+    page=st.radio('화면',['시장 · 관심기업','기업 정보표','기업 상세','거시경제 · 시장환경','모의투자 계좌','연결 진단'],label_visibility='collapsed')
     st.divider()
     auto=st.toggle('화면 자동 갱신',value=True)
-    st.caption('처음 열 때 자동 수집 · 이후 60초마다 확인\n\nKRX 종가 15분 / KIS 시세·계좌 60초 / 주가 이력 1시간 / 재무 실적 6시간 캐시')
+    st.caption('처음 열 때 자동 수집 · 이후 60초마다 확인\n\nKRX 종가 15분 / KIS 시세·계좌 60초 / 주가 이력 1시간 / 재무 실적·ECOS 6시간 캐시')
     st.caption('한국 시간 '+now().strftime('%Y-%m-%d %H:%M'))
     if st.button('로그아웃'):
         st.session_state.clear();st.rerun()
@@ -258,7 +266,7 @@ def portfolio_page():
 
 def diagnostics_page():
     heading('연결 진단','설정 인식과 실제 API 조회 결과를 구분합니다. 키·계좌번호 값은 표시하지 않습니다.')
-    labels={'krx':'KRX 인증키','key':'KIS 모의 KEY','secret':'KIS 모의 SECRET','real_key':'KIS 실전 재무 KEY','real_secret':'KIS 실전 재무 SECRET','account':'모의 계좌번호','product':'상품코드'}
+    labels={'ecos':'한국은행 ECOS 인증키','krx':'KRX 인증키','key':'KIS 모의 KEY','secret':'KIS 모의 SECRET','real_key':'KIS 실전 재무 KEY','real_secret':'KIS 실전 재무 SECRET','account':'모의 계좌번호','product':'상품코드'}
     table(pd.DataFrame([{'항목':label,'설정':'인식됨' if getattr(settings,k) else '미설정','읽은 위치':settings.locations.get(k) or ('기본값 01' if k=='product' else '—')} for k,label in labels.items()]))
     rows=[]
     for key,e in cache.items():rows.append({'조회':key,'상태':'실패 · 이전 결과 유지' if e.get('error') and 'data' in e else '실패' if e.get('error') else '성공','최근 시도':e.get('attempted_at'),'최근 성공':e.get('success_at','—'),'안내':e.get('error','')})
@@ -266,11 +274,12 @@ def diagnostics_page():
     else:st.info('다른 화면에 들어가면 API를 자동 조회하고 결과가 여기에 기록됩니다.')
     st.markdown('**KRX**: 인증키 승인 외에 **유가증권 일별매매정보·코스닥 일별매매정보**를 각각 이용 신청해야 합니다.\n\n**KIS**: 모의투자용 KEY·SECRET을 사용합니다. 시세 조회에는 계좌번호가 필요 없고, 잔고 조회에는 계좌 8자리와 상품코드 2자리가 필요합니다.')
     st.info('기업 실적은 [kis_real]의 실전용 KEY·SECRET으로 조회합니다. 실전 계좌번호는 필요 없으며 주문 기능은 없습니다.')
+    st.info('거시경제 지표는 [ecos] api_key로 조회합니다. 설정 인식은 인증 성공을 뜻하지 않습니다. 거시경제 화면을 열면 각 통계의 실제 조회 결과가 기록됩니다.')
     st.download_button('Secrets 설정 예시',Path('secrets.example.toml').read_text(),file_name='secrets.example.toml')
     st.caption('공공데이터포털·OpenDART·스크래핑·CSV 업로드·가상 숫자는 사용하지 않습니다. 손익계산서는 KIS 실전 API로 조회합니다. 컨센서스는 제공하지 않습니다.')
 
 @st.fragment(run_every=60 if auto else None)
 def render():
-    {'시장 · 관심기업':market_page,'기업 정보표':catalog_page,'기업 상세':company_page,'모의투자 계좌':portfolio_page,'연결 진단':diagnostics_page}[page]()
+    {'시장 · 관심기업':market_page,'기업 정보표':catalog_page,'기업 상세':company_page,'거시경제 · 시장환경':lambda:macro_page(settings,ecos,load,report,refresh),'모의투자 계좌':portfolio_page,'연결 진단':diagnostics_page}[page]()
 render()
-st.divider();st.caption('MPE 2.2 · KRX / KIS · 모의 시세·계좌 / 실전 재무정보 조회 전용')
+st.divider();st.caption('MPE 2.3 · KRX / KIS / ECOS · 모의 시세·계좌 / 실전 재무정보 조회 전용')

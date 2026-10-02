@@ -104,3 +104,17 @@ app_secret = "실전용 SECRET"
 공식 명세: https://apiportal.koreainvestment.com/api/apis/public/detail?accessUrl=%2Fuapi%2Fdomestic-stock%2Fv1%2Ffinance%2Fincome-statement
 공식 예제: https://github.com/koreainvestment/open-trading-api/tree/main/examples_llm/domestic_stock/finance_income_statement
 실제 계정 인증은 사용자 Secrets 설정 후 확인해야 합니다. 테스트에서는 가짜 응답으로 계산/라우팅/설정 분리를 검증합니다.
+
+
+## 거시경제 · 시장환경 (2.3)
+Secrets에 `[ecos]` 섹션의 `api_key`를 설정하면 새 메뉴에서 자동 수집합니다.
+최상위 별칭은 `ECOS_API_KEY` 또는 `BOK_API_KEY`이며 KRX 키를 재사용하지 않습니다.
+- GDP: `200Y102/10211` 실질 원계열 전년 동기 대비, `200Y102/10111` 실질 계절조정 전분기 대비. 제공된 성장률을 사용하며 연율 환산하지 않습니다.
+- CPI: `901Y009/0`, 월 총지수(2020=100). 정확히 전년 같은 달과 비교하여 상승률을 계산합니다. 누락 월을 앞선 값으로 채우지 않습니다.
+- 환율: `731Y001/0000001` 원/달러 매매기준율, `0000002` 원/100엔, `0000003` 원/유로. 실시간 시세가 아닌 ECOS 일별 통계입니다.
+- 최근 1·3·5년 차트, 기간별 원자료/CSV, 통계 기준기간·수집시각, 직전 기간 대비 변화(성장률/물가는 %p)를 표시합니다.
+- 각 통계는 독립적으로 6시간 캐시하며 실패해도 다른 통계는 계속 표시합니다. 이전 성공값을 유지할 때 오류와 수집시각을 표시합니다.
+- 매번 조회 기간 전체를 다시 수집하여 수정 통계를 반영합니다. 지표의 속보/잠정/확정 구분이나 발표일은 응답에 없어 단정하지 않습니다.
+- API 키는 URL 경로에 포함되므로 요청 URL·원문 오류를 로그나 화면에 출력하지 않습니다.
+- 공식 API: https://ecos.bok.or.kr/api/ (StatisticItemList로 항목/단위, StatisticSearch로 자료 검증)
+개발 환경의 공개 sample API 접속과 자동 테스트를 확인했습니다. 사용자 인증키 및 실제 Streamlit 서버에서의 접속은 배포 후 연결 진단에서 확인해야 합니다. sample 응답을 운영 데이터로 대체하지 않습니다.
