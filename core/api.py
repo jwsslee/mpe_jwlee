@@ -36,6 +36,29 @@ def request(provider,method,url,**kwargs):
     if not isinstance(body,dict):raise APIError(f'{provider}: 응답 형식 오류.')
     return body,r.headers
 
+def parse_history_rows(raw,begin,end):
+    """Parse only valid business rows; ignore wholly empty API padding rows."""
+    if not isinstance(raw,list):raise APIError('KIS 일별주가: output2 목록 형식 오류 [history.rows]')
+    result=[]
+    for index,r in enumerate(raw,1):
+        if r is None or r=='':continue
+        if not isinstance(r,dict):raise APIError(f'KIS 일별주가: {index}행의 자료 형식 오류 [history.row]')
+        value=r.get('stck_bsop_date')
+        text=str(value).strip() if value is not None else ''
+        if not text:
+            if any(number(r.get(k))>0 for k in ('stck_clpr','stck_oprc','stck_hgpr','stck_lwpr','acml_vol')):
+                raise APIError(f'KIS 일별주가: {index}행의 날짜 누락 [history.date]')
+            continue
+        if not re.fullmatch(r'\d{8}',text):raise APIError(f'KIS 일별주가: {index}행의 날짜 형식 오류 [history.date]')
+        try:day=datetime.strptime(text,'%Y%m%d').date()
+        except ValueError:raise APIError(f'KIS 일별주가: {index}행의 유효하지 않은 날짜 [history.date]') from None
+        if not begin<=day<=end:continue
+        row={'date':day.isoformat()}
+        for dst,src in {'open':'stck_oprc','high':'stck_hgpr','low':'stck_lwpr','close':'stck_clpr','volume':'acml_vol'}.items():row[dst]=number(r.get(src))
+        if row['close']>0:result.append(row)
+        else:raise APIError(f'KIS 일별주가: {index}행의 종가 누락 또는 비정상 값 [history.close]')
+    return result
+
 class KRX:
     BASE='https://data-dbg.krx.co.kr/svc/apis/sto/'
     def __init__(self,key):self.key=key
@@ -103,16 +126,11 @@ class KIS:
         while end>=start:
             begin=max(start,end-timedelta(days=89))
             body,_=self.get('/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice','FHKST03010100',{'FID_COND_MRKT_DIV_CODE':'J','FID_INPUT_ISCD':code,'FID_INPUT_DATE_1':begin.strftime('%Y%m%d'),'FID_INPUT_DATE_2':end.strftime('%Y%m%d'),'FID_PERIOD_DIV_CODE':'D','FID_ORG_ADJ_PRC':'0'})
-            raw=body.get('output2')
-            if not isinstance(raw,list):raise APIError('KIS: 일별 주가 응답 형식 오류. 불완전한 이력은 표시하지 않습니다.')
-            for r in raw:
-                if not r.get('stck_bsop_date'):continue
-                try:day=pd.to_datetime(r['stck_bsop_date'],format='%Y%m%d').date()
-                except ValueError:raise APIError('KIS: 일별 주가 날짜 형식 오류.') from None
-                if not begin<=day<=end:continue
-                row={'date':str(day)}
-                for dst,src in {'open':'stck_oprc','high':'stck_hgpr','low':'stck_lwpr','close':'stck_clpr','volume':'acml_vol'}.items():row[dst]=number(r.get(src))
-                if row['close']>0:rows.append(row)
+            try:
+                if not isinstance(body,dict):raise APIError('KIS 일별주가: 응답 객체 형식 오류 [history.body]')
+                rows.extend(parse_history_rows(body.get('output2'),begin,end))
+            except APIError as error:
+                raise APIError(f'{error} · 조회 구간 {begin} ~ {end}') from None
             end=begin-timedelta(days=1)
         if not rows:raise APIError('KIS: 요청 기간의 일별 주가가 없습니다.')
         return pd.DataFrame(rows).drop_duplicates('date').sort_values('date').reset_index(drop=True)
