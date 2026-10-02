@@ -6,7 +6,14 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 from core.api import KRX,KIS,APIError,now
-from core.settings import read_settings
+import core.settings as settings_module
+# Cloud can rerun a new entrypoint while an older imported module remains loaded.
+# Refresh only when the required settings schema is absent, not on every rerun.
+if not hasattr(settings_module.Settings,'ecos_fingerprint'):
+    import importlib
+    importlib.invalidate_caches()
+    importlib.reload(settings_module)
+read_settings=settings_module.read_settings
 from core.finance import KISFinancials
 from core.ecos import ECOS
 from core.macro_ui import macro_page
@@ -18,6 +25,9 @@ from core.style import setup,heading,fmt,cards,table,plot
 
 st.set_page_config(page_title='이종완 · 반도체 소부장',page_icon='◈',layout='wide')
 setup()
+if not hasattr(settings_module.Settings,'ecos_fingerprint'):
+    st.error('배포 파일 업데이트가 아직 완료되지 않았습니다. 잠시 후 Manage app → Reboot app으로 앱을 재시작하세요. Secrets를 바꿀 필요는 없습니다.')
+    st.stop()
 try:
     try:settings=read_settings(st.secrets,os.environ)
     except FileNotFoundError:settings=read_settings({},os.environ)
