@@ -32,8 +32,9 @@ def macro_page(settings,client,load,report,refresh):
             entries[name]=load('ECOS '+name,lambda n=name:client.series(n),21600,force)
     st.subheader('최신 발표 지표')
     summary=[]
-    columns=st.columns(3)
     for i,(name,spec) in enumerate(SERIES.items()):
+        # Start a separate row so captions above cannot shift the next cards.
+        if i%3==0:columns=st.columns(3)
         e=entries[name]
         with columns[i%3]:
             if 'data' not in e:
