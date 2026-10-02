@@ -10,6 +10,7 @@ from core.settings import read_settings
 from core.state import collect
 from core.universe import COMPANIES,DEFAULT_CODES
 from core.catalog import catalog,filter_catalog
+from core.glossary import MEANINGS,glossary_table
 from core.style import setup,heading,fmt,cards,table,plot
 
 st.set_page_config(page_title='이종완 · 반도체 소부장',page_icon='◈',layout='wide')
@@ -135,11 +136,27 @@ def catalog_page():
     category=b.selectbox('소부장 · 서비스 구분',['전체']+sorted({v for x in reference.category for v in x.split('·')}),key='catalog_category')
     product=c.selectbox('적용 제품',['전체','DRAM','3D NAND','HBM','기타'],key='catalog_product')
     group=st.selectbox('유사 제품 비교군',['전체']+sorted(reference.group.unique()),key='catalog_group')
+    if group!='전체' and group in MEANINGS:
+        st.info(group+' — '+MEANINGS[group])
     result=filter_catalog(reference,query,stage,category,product,group)
     st.caption(f'전체 {len(reference)}개 중 {len(result)}개 기업 표시')
     if result.empty:st.info('조건에 해당하는 기업이 없습니다. 검색어나 필터를 변경하세요.')
     else:table(result.assign(products=result.products.str.replace('|',' · ',regex=False)))
     st.caption('공정 구분은 탐색 편의를 위한 대표 분류입니다. 검사·테스트는 웨이퍼·패키지 단계에 걸칠 수 있으며 적용 제품 태그는 해당 세대의 양산 공급을 확정하는 뜻이 아닙니다.')
+
+    st.subheader('유사 제품 비교군 · 쉬운 용어 해설')
+    st.caption('비교군은 비슷한 제품·역할의 기업을 묶은 분류입니다. 일부 이름은 한 기업의 여러 사업을 함께 표시합니다.')
+    glossary_query=st.text_input('용어 · 뜻 · 기업 예시 검색',key='glossary_query',placeholder='예: 증착, 막, 본딩, 원익IPS')
+    terms=glossary_table(reference,glossary_query)
+    if terms.empty:st.info('검색 조건에 맞는 용어가 없습니다.')
+    else:
+        st.dataframe(terms,hide_index=True,width='stretch',height=460,column_config={
+            '비교군 용어':st.column_config.TextColumn(width='small'),
+            '쉬운 뜻':st.column_config.TextColumn(width='large'),
+            '기업 예시(기존 분류)':st.column_config.TextColumn(width='medium')})
+    st.caption('기업 예시는 기존 기업정보표의 분류에서 최대 3개를 표시합니다. 용어 설명은 입문용 요약입니다.')
+    with st.expander('용어 참고 자료'):
+        st.markdown('- [Applied Materials · 반도체 기술 용어집](https://www.appliedmaterials.com/il/en/glossary.html)\n- [ASE · 패키징 기술](https://asekh.aseglobal.com/products-services/package.html)\n- [Advantest · 테스트 핸들러](https://www.advantest.com/en/products/component-test-system/test-handler/)')
 
 
 def company_page():
