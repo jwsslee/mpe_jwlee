@@ -9,6 +9,7 @@ from core.api import KRX,KIS,APIError,now
 from core.settings import read_settings
 from core.state import collect
 from core.universe import COMPANIES,DEFAULT_CODES
+from core.catalog import catalog,filter_catalog
 from core.style import setup,heading,fmt,cards,table,plot
 
 st.set_page_config(page_title='이종완 · 반도체 소부장',page_icon='◈',layout='wide')
@@ -46,8 +47,8 @@ if st.session_state.get('config_id')!=settings.fingerprint:
 cache=st.session_state.cache;kis=st.session_state.kis
 with st.sidebar:
     st.markdown('### ◈ 종완의 투자연구실')
-    st.caption('KRX × KIS · 새 버전 2.0')
-    page=st.radio('화면',['시장 · 관심기업','기업 상세','모의투자 계좌','연결 진단'],label_visibility='collapsed')
+    st.caption('KRX × KIS · 새 버전 2.1')
+    page=st.radio('화면',['시장 · 관심기업','기업 정보표','기업 상세','모의투자 계좌','연결 진단'],label_visibility='collapsed')
     st.divider()
     auto=st.toggle('화면 자동 갱신',value=True)
     st.caption('처음 열 때 자동 수집 · 이후 60초마다 확인\n\nKRX 종가 15분 / KIS 시세·계좌 60초 / 주가 이력 1시간 캐시')
@@ -115,10 +116,33 @@ def market_page():
     table(df.reindex(columns=columns))
 
 
+def catalog_page():
+    heading('기업별 주력사업 · 제품 정보표','이전 버전의 72개 기업 분류를 복원한 참고 정보입니다.')
+    reference=catalog()
+    st.caption('이 표는 조사 기반 참고 분류이며 KRX·KIS 자동 수집값이 아닙니다. 최신 상장상태·실제 고객 공급관계는 별도 확인이 필요합니다.')
+    query=st.text_input('기업명 · 종목코드 · 주력제품 검색',key='catalog_query',placeholder='예: 대덕전자, 본더, 전구체')
+    a,b,c=st.columns(3)
+    stage=a.selectbox('공정 구분',['전체']+sorted(reference.stage.unique()),key='catalog_stage')
+    category=b.selectbox('소부장 · 서비스 구분',['전체']+sorted({v for x in reference.category for v in x.split('·')}),key='catalog_category')
+    product=c.selectbox('적용 제품',['전체','DRAM','3D NAND','HBM','기타'],key='catalog_product')
+    group=st.selectbox('유사 제품 비교군',['전체']+sorted(reference.group.unique()),key='catalog_group')
+    result=filter_catalog(reference,query,stage,category,product,group)
+    st.caption(f'전체 {len(reference)}개 중 {len(result)}개 기업 표시')
+    if result.empty:st.info('조건에 해당하는 기업이 없습니다. 검색어나 필터를 변경하세요.')
+    else:table(result.assign(products=result.products.str.replace('|',' · ',regex=False)))
+    st.caption('공정 구분은 탐색 편의를 위한 대표 분류입니다. 검사·테스트는 웨이퍼·패키지 단계에 걸칠 수 있으며 적용 제품 태그는 해당 세대의 양산 공급을 확정하는 뜻이 아닙니다.')
+
+
 def company_page():
     heading('기업 상세','KIS 모의 API · 현재가와 제공 가치지표 · 최근 1년 수정주가')
     options=list(COMPANIES)
     code=st.selectbox('기업',options,index=options.index('353200') if '353200' in options else 0,format_func=lambda c:f'{COMPANIES[c]} · {c}')
+    info=catalog()
+    info=info[info.code==code]
+    if not info.empty:
+        st.subheader('주력사업 · 공정 분류')
+        table(info.assign(products=info.products.str.replace('|',' · ',regex=False)))
+        st.caption('이전 조사 기반 참고 정보 · API 시세와 별도 관리')
     force=refresh('company')
     with st.spinner('KIS 현재가 조회 중…'):q=load('KIS 현재가 '+code,lambda:kis.quote(code),60,force)
     report(q,'현재가')
@@ -187,6 +211,6 @@ def diagnostics_page():
 
 @st.fragment(run_every=60 if auto else None)
 def render():
-    {'시장 · 관심기업':market_page,'기업 상세':company_page,'모의투자 계좌':portfolio_page,'연결 진단':diagnostics_page}[page]()
+    {'시장 · 관심기업':market_page,'기업 정보표':catalog_page,'기업 상세':company_page,'모의투자 계좌':portfolio_page,'연결 진단':diagnostics_page}[page]()
 render()
-st.divider();st.caption('MPE 2.0 · KRX / KIS · 원화 기준 · 모의투자 조회 전용')
+st.divider();st.caption('MPE 2.1 · KRX / KIS · 원화 기준 · 모의투자 조회 전용')

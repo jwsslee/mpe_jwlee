@@ -1,7 +1,7 @@
 import pandas as pd
 import streamlit as st
 
-LABELS={'code':'종목코드','name':'기업','market':'시장','price':'가격(원)','change_pct':'등락률(%)','volume':'거래량(주)','turnover':'거래대금(원)','market_cap':'시가총액(원)','shares':'상장주식수','source':'출처','asof':'자료 기준','fetched':'수집시각','per':'PER(배)','pbr':'PBR(배)','eps':'EPS(원)','bps':'BPS(원)','foreign_pct':'외국인 소진율(%)','high_52':'52주 최고가(원)','low_52':'52주 최저가(원)','quantity':'보유수량','avg_price':'평균매입가(원)','cost':'매입금액(원)','value':'평가금액(원)','pnl':'평가손익(원)','pnl_pct':'평가손익률(%)','weight':'주식 내 비중(%)','date':'날짜','open':'시가','high':'고가','low':'저가','close':'종가'}
+LABELS={'stage':'공정 구분','process':'세부 공정','category':'소부장·서비스','group':'유사 제품 비교군','business':'주력사업·제품','products':'적용 제품','code':'종목코드','name':'기업','market':'시장','price':'가격(원)','change_pct':'등락률(%)','volume':'거래량(주)','turnover':'거래대금(원)','market_cap':'시가총액(원)','shares':'상장주식수','source':'출처','asof':'자료 기준','fetched':'수집시각','per':'PER(배)','pbr':'PBR(배)','eps':'EPS(원)','bps':'BPS(원)','foreign_pct':'외국인 소진율(%)','high_52':'52주 최고가(원)','low_52':'52주 최저가(원)','quantity':'보유수량','avg_price':'평균매입가(원)','cost':'매입금액(원)','value':'평가금액(원)','pnl':'평가손익(원)','pnl_pct':'평가손익률(%)','weight':'주식 내 비중(%)','date':'날짜','open':'시가','high':'고가','low':'저가','close':'종가'}
 
 def setup():
     st.markdown('''<style>
