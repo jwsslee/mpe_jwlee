@@ -1,4 +1,4 @@
-"""Only two upstream institutions. Read-only KIS demo; no orders."""
+"""Only two upstream institutions. Read-only KIS clients; no orders."""
 from datetime import datetime,timedelta
 from zoneinfo import ZoneInfo
 import math,re,time
@@ -33,8 +33,9 @@ def request(provider,method,url,**kwargs):
     if r.status_code!=200:
         try:code=error_code(r.json())
         except (ValueError,AttributeError):code='코드 없음'
-        if provider=='KIS' and (code=='EGW00201' or r.status_code==429):raise RateLimitError()
+        if provider.startswith('KIS') and (code=='EGW00201' or r.status_code==429):raise RateLimitError()
         help_text='인증키와 해당 서비스 이용 승인을 확인하세요.' if provider=='KRX' else '모의투자 KEY·SECRET과 모의투자 신청 상태를 확인하세요.'
+        if provider=='KIS 실전 재무':help_text='실전용 KEY·SECRET과 실전 API 이용 신청 상태를 확인하세요.'
         if r.status_code==429:help_text='호출 한도에 도달했습니다. 잠시 후 새로고침하세요.'
         raise APIError(f'{provider}: HTTP {r.status_code} / {code}. {help_text}')
     try:body=r.json()
@@ -93,19 +94,21 @@ class KRX:
         raise APIError(f'KRX {market}: 최근 12일에 제공된 시세가 없습니다.')
 
 class KIS:
+    PROVIDER='KIS'
+    ENV_LABEL='모의투자'
     BASE='https://openapivts.koreainvestment.com:29443'
     def __init__(self,key,secret,account='',product='01'):
         self.key=key;self.secret=secret;self.account=account;self.product=product
         self._token='';self._expires=0.;self._auth_attempt=-1e9
         self._gate=gate_for(key)
     def token(self):
-        if not self.key or not self.secret:raise APIError('KIS: 모의투자 KEY·SECRET을 Secrets에 설정하세요.')
+        if not self.key or not self.secret:raise APIError(f'{self.PROVIDER}: {self.ENV_LABEL} KEY·SECRET을 Secrets에 설정하세요.')
         if self._token and time.time()<self._expires:return self._token
         if time.monotonic()-self._auth_attempt<65:raise APIError('KIS: 토큰 재발급 간격입니다. 65초 후 새로고침하세요.')
         self._auth_attempt=time.monotonic()
         self._gate.wait()
-        body,_=request('KIS','POST',self.BASE+'/oauth2/tokenP',json={'grant_type':'client_credentials','appkey':self.key,'appsecret':self.secret})
-        if not body.get('access_token'):raise APIError(f'KIS: 토큰 인증 실패 / {error_code(body)}. 모의용 키와 신청 상태를 확인하세요.')
+        body,_=request(self.PROVIDER,'POST',self.BASE+'/oauth2/tokenP',json={'grant_type':'client_credentials','appkey':self.key,'appsecret':self.secret})
+        if not body.get('access_token'):raise APIError(f'{self.PROVIDER}: 토큰 인증 실패 / {error_code(body)}. {self.ENV_LABEL} 키와 신청 상태를 확인하세요.')
         self._token=body['access_token'];self._expires=time.time()+max(0,number(body.get('expires_in',3600))-120)
         return self._token
     def get(self,path,tr,params,cont=''):
@@ -113,12 +116,12 @@ class KIS:
         for attempt in range(4):
             self._gate.wait()
             try:
-                body,headers=request('KIS','GET',self.BASE+path,headers={'content-type':'application/json; charset=utf-8','authorization':'Bearer '+token,'appkey':self.key,'appsecret':self.secret,'tr_id':tr,'tr_cont':cont,'custtype':'P'},params=params)
+                body,headers=request(self.PROVIDER,'GET',self.BASE+path,headers={'content-type':'application/json; charset=utf-8','authorization':'Bearer '+token,'appkey':self.key,'appsecret':self.secret,'tr_id':tr,'tr_cont':cont,'custtype':'P'},params=params)
                 if str(body.get('rt_cd'))!='0':
                     code=error_code(body)
                     if code=='EGW00201':raise RateLimitError()
                     if code in ('EGW00123','EGW00121'):self._token=''
-                    raise APIError(f'KIS: 조회 거부 / {code}. 모의투자 지원·계좌 설정·호출 한도를 확인하세요.')
+                    raise APIError(f'{self.PROVIDER}: 조회 거부 / {code}. {self.ENV_LABEL} API 이용 신청·설정·호출 한도를 확인하세요.')
                 return body,{str(k).lower():v for k,v in headers.items()}
             except RateLimitError:
                 # Retry only this read request, not all previously fetched history chunks.

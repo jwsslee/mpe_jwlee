@@ -85,3 +85,22 @@ KIS 공식 오류코드 `EGW00201`은 **초당 거래건수 초과**입니다. H
 시장·관심기업과 기업 상세의 대표 가격·등락률은 모두 KIS 현재가 응답(`prdy_ctrt`)과 동일한 종목별 세션 캐시를 사용합니다. KRX 최근 일별자료는 기준일을 명시한 별도 참고표에 표시하며 KIS 실패 시 대표 값으로 대체하지 않습니다. 현재가의 전일 대비 등락률과 1년 차트의 관측 기간 수익률은 다른 지표입니다.
 
 동일한 조회 결과를 보는 동안 두 화면의 값은 같습니다. 60초 캐시 만료 또는 수동 새로고침 뒤에는 시세가 바뀔 수 있으므로 수집시각을 비교하세요. KIS 실패 시 이전 성공 자료의 유지 여부를 표에 표시합니다.
+
+
+## 기업 실적 (2.2)
+기존 `[kis]` 모의투자 설정을 유지하고 Secrets 맨 아래에 별도 섹션을 추가합니다.
+```toml
+[kis_real]
+app_key = "실전용 KEY"
+app_secret = "실전용 SECRET"
+```
+저장 후 앱을 재시작하고 기업 상세 → 기업 실적을 엽니다. 실전 계좌번호는 필요 없습니다.
+최상위 환경변수/Secrets 별칭은 `KIS_REAL_APP_KEY`, `KIS_REAL_APP_SECRET`입니다.
+실전 키를 모의 키로 대체하지 않으며, 실전 클라이언트는 손익계산서 GET만 허용합니다.
+매출액·영업이익·당기순이익과 `영업이익 / 매출액 × 100`을 표시합니다.
+연간/분기 누적을 선택하며, 분기 누적은 연단위 누적합산입니다. 단독 분기나 TTM으로 표시하지 않습니다.
+금액은 환산하지 않은 KIS 제공값입니다. 확인한 API 명세에 금액 단위와 연결/별도 기준이 없어 원/억원 또는 연결 실적으로 단정하지 않습니다.
+반환된 기간만 표시하며 연속조회는 지원하지 않습니다. 6시간 캐시, 실패 시 이전 성공값과 오류를 표시합니다.
+공식 명세: https://apiportal.koreainvestment.com/api/apis/public/detail?accessUrl=%2Fuapi%2Fdomestic-stock%2Fv1%2Ffinance%2Fincome-statement
+공식 예제: https://github.com/koreainvestment/open-trading-api/tree/main/examples_llm/domestic_stock/finance_income_statement
+실제 계정 인증은 사용자 Secrets 설정 후 확인해야 합니다. 테스트에서는 가짜 응답으로 계산/라우팅/설정 분리를 검증합니다.

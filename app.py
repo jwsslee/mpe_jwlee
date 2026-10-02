@@ -7,6 +7,7 @@ import plotly.express as px
 import streamlit as st
 from core.api import KRX,KIS,APIError,now
 from core.settings import read_settings
+from core.finance import KISFinancials
 from core.state import collect
 from core.universe import COMPANIES,DEFAULT_CODES
 from core.catalog import catalog,filter_catalog
@@ -46,13 +47,19 @@ if st.session_state.get('config_id')!=settings.fingerprint:
     st.session_state.cache={}
     st.session_state.kis=KIS(settings.key,settings.secret,settings.account,settings.product)
 cache=st.session_state.cache;kis=st.session_state.kis
+if st.session_state.get('finance_config_id')!=settings.finance_fingerprint:
+    st.session_state.finance_config_id=settings.finance_fingerprint
+    st.session_state.finance=KISFinancials(settings.real_key,settings.real_secret)
+    for key in list(cache):
+        if key.startswith('KIS 실전 실적 '):del cache[key]
+finance=st.session_state.finance
 with st.sidebar:
     st.markdown('### ◈ 이종완의 투자연구실')
-    st.caption('KRX × KIS · 새 버전 2.1')
+    st.caption('KRX × KIS · 새 버전 2.2')
     page=st.radio('화면',['시장 · 관심기업','기업 정보표','기업 상세','모의투자 계좌','연결 진단'],label_visibility='collapsed')
     st.divider()
     auto=st.toggle('화면 자동 갱신',value=True)
-    st.caption('처음 열 때 자동 수집 · 이후 60초마다 확인\n\nKRX 종가 15분 / KIS 시세·계좌 60초 / 주가 이력 1시간 캐시')
+    st.caption('처음 열 때 자동 수집 · 이후 60초마다 확인\n\nKRX 종가 15분 / KIS 시세·계좌 60초 / 주가 이력 1시간 / 재무 실적 6시간 캐시')
     st.caption('한국 시간 '+now().strftime('%Y-%m-%d %H:%M'))
     if st.button('로그아웃'):
         st.session_state.clear();st.rerun()
@@ -159,6 +166,29 @@ def catalog_page():
         st.markdown('- [Applied Materials · 반도체 기술 용어집](https://www.appliedmaterials.com/il/en/glossary.html)\n- [ASE · 패키징 기술](https://asekh.aseglobal.com/products-services/package.html)\n- [Advantest · 테스트 핸들러](https://www.advantest.com/en/products/component-test-system/test-handler/)')
 
 
+def financial_section(code,force=False):
+    st.subheader('기업 실적 · 수익성')
+    mode=st.radio('실적 기준',['연간','분기 누적'],horizontal=True,key='finance_period')
+    st.caption('분기 누적은 해당 연도 시작부터 결산년월까지의 합계이며, 해당 분기만의 실적이 아닙니다.')
+    if not settings.real_key or not settings.real_secret:
+        st.info('실적 자동 조회를 위해 Streamlit Secrets에 [kis_real]의 app_key와 app_secret을 추가하세요. 실전용 키를 사용합니다.')
+        st.code('[kis_real]\napp_key = "실전용 KEY"\napp_secret = "실전용 SECRET"',language='toml')
+        return
+    division='0' if mode=='연간' else '1'
+    with st.spinner('KIS 실전 재무정보 조회 중…'):
+        e=load('KIS 실전 실적 '+code+' '+division,lambda:finance.income(code,division),21600,force)
+    report(e,'KIS 손익계산서 · '+mode)
+    if 'data' not in e:return
+    df=e['data'];latest=df.iloc[-1]
+    st.caption('최근 제공 결산기간 '+latest['결산년월']+' · '+mode+' · KIS 응답에 포함된 기간만 표시')
+    st.info('금액은 KIS 제공값을 환산 없이 표시합니다. API 명세에 금액 단위와 연결·별도 기준이 명시되지 않아 원·억원 또는 연결 실적으로 단정하지 않습니다.')
+    cards([('매출액 · 제공값',fmt(latest['매출액'])),('영업이익 · 제공값',fmt(latest['영업이익'])),('영업이익률',fmt(latest['영업이익률(%)'],'%')),('당기순이익 · 제공값',fmt(latest['당기순이익']))])
+    st.caption('영업이익률 = 같은 기간 영업이익 ÷ 매출액 × 100. 매출액이 0 이하이거나 수치가 없으면 미제공으로 표시합니다.')
+    plot(px.bar(df,x='결산년월',y=['매출액','영업이익'],barmode='group',labels={'value':'금액 · KIS 제공값','variable':'항목'}))
+    plot(px.line(df,x='결산년월',y='영업이익률(%)',markers=True))
+    table(df.sort_values('결산년월',ascending=False))
+
+
 def company_page():
     heading('기업 상세','KIS 모의 API · 현재가와 제공 가치지표 · 최근 1년 수정주가')
     options=list(COMPANIES)
@@ -179,6 +209,8 @@ def company_page():
         st.subheader('API 제공 지표')
         table(pd.DataFrame([d]).reindex(columns=['per','pbr','eps','bps','foreign_pct','high_52','low_52']))
         st.caption('PER·PBR·EPS·BPS는 KIS 응답값입니다. 재무 기준기간·연결 여부가 이 응답에 없어 별도 실적 분석으로 해석하지 않습니다. 0 이하 PER·PBR은 미제공으로 처리합니다.')
+    financial_section(code,force)
+    st.subheader('일별 수정주가')
     with st.spinner('KIS 일별 주가 조회 중…'):h=load('KIS 일별주가 '+code,lambda:kis.history(code),3600,force)
     report(h,'일별 수정주가')
     if 'data' in h:
@@ -226,18 +258,19 @@ def portfolio_page():
 
 def diagnostics_page():
     heading('연결 진단','설정 인식과 실제 API 조회 결과를 구분합니다. 키·계좌번호 값은 표시하지 않습니다.')
-    labels={'krx':'KRX 인증키','key':'KIS 모의 KEY','secret':'KIS 모의 SECRET','account':'계좌번호','product':'상품코드'}
+    labels={'krx':'KRX 인증키','key':'KIS 모의 KEY','secret':'KIS 모의 SECRET','real_key':'KIS 실전 재무 KEY','real_secret':'KIS 실전 재무 SECRET','account':'모의 계좌번호','product':'상품코드'}
     table(pd.DataFrame([{'항목':label,'설정':'인식됨' if getattr(settings,k) else '미설정','읽은 위치':settings.locations.get(k) or ('기본값 01' if k=='product' else '—')} for k,label in labels.items()]))
     rows=[]
     for key,e in cache.items():rows.append({'조회':key,'상태':'실패 · 이전 결과 유지' if e.get('error') and 'data' in e else '실패' if e.get('error') else '성공','최근 시도':e.get('attempted_at'),'최근 성공':e.get('success_at','—'),'안내':e.get('error','')})
     if rows:table(pd.DataFrame(rows))
     else:st.info('다른 화면에 들어가면 API를 자동 조회하고 결과가 여기에 기록됩니다.')
     st.markdown('**KRX**: 인증키 승인 외에 **유가증권 일별매매정보·코스닥 일별매매정보**를 각각 이용 신청해야 합니다.\n\n**KIS**: 모의투자용 KEY·SECRET을 사용합니다. 시세 조회에는 계좌번호가 필요 없고, 잔고 조회에는 계좌 8자리와 상품코드 2자리가 필요합니다.')
+    st.info('기업 실적은 [kis_real]의 실전용 KEY·SECRET으로 조회합니다. 실전 계좌번호는 필요 없으며 주문 기능은 없습니다.')
     st.download_button('Secrets 설정 예시',Path('secrets.example.toml').read_text(),file_name='secrets.example.toml')
-    st.caption('공공데이터포털·OpenDART·스크래핑·CSV 업로드·가상 숫자는 사용하지 않습니다. 재무제표·컨센서스 등 자동 조회를 구현하지 않은 항목은 메뉴에서 제외했습니다.')
+    st.caption('공공데이터포털·OpenDART·스크래핑·CSV 업로드·가상 숫자는 사용하지 않습니다. 손익계산서는 KIS 실전 API로 조회합니다. 컨센서스는 제공하지 않습니다.')
 
 @st.fragment(run_every=60 if auto else None)
 def render():
     {'시장 · 관심기업':market_page,'기업 정보표':catalog_page,'기업 상세':company_page,'모의투자 계좌':portfolio_page,'연결 진단':diagnostics_page}[page]()
 render()
-st.divider();st.caption('MPE 2.1 · KRX / KIS · 원화 기준 · 모의투자 조회 전용')
+st.divider();st.caption('MPE 2.2 · KRX / KIS · 모의 시세·계좌 / 실전 재무정보 조회 전용')
