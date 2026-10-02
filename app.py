@@ -271,7 +271,7 @@ def portfolio_page():
         if total>0:plot(px.pie(df,names='name',values='value',hole=.65,title='주식 평가액 비중'))
     with right:plot(px.bar(df,x='name',y='pnl',title='종목별 평가손익',labels={'name':'종목','pnl':'원'}))
     table(df)
-    st.caption('잔고와 토큰은 로그인 세션 메모리에만 보관하며 GitHub·파일에 저장하지 않습니다.')
+    st.caption('잔고는 로그인 세션에, 인증 토큰은 같은 서버의 메모리에 보관합니다. 동일 키의 토큰을 재사용하며 GitHub·파일에 저장하지 않습니다.')
 
 
 def diagnostics_page():

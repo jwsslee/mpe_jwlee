@@ -5,6 +5,7 @@ import math,re,time
 import pandas as pd
 import requests
 from .rate_limit import gate_for
+from .token_cache import state_for
 
 KST=ZoneInfo('Asia/Seoul')
 
@@ -16,6 +17,11 @@ def number(value):
     except (ValueError,TypeError):return float('nan')
 
 class APIError(Exception):pass
+
+class TokenCooldownError(APIError):
+    def __init__(self,seconds=65):
+        self.retry_after=max(1,int(math.ceil(seconds)))
+        super().__init__(f'KIS: 토큰 발급 간격 제한 (EGW00133). KEY·SECRET 오류가 아닙니다. 약 {self.retry_after}초 후 다시 조회하세요. 반복 Reboot·로그인·새로고침을 멈추고, 다른 프로그램에서도 같은 키로 토큰을 발급 중인지 확인하세요.')
 
 class RateLimitError(APIError):
     def __init__(self):
@@ -33,6 +39,7 @@ def request(provider,method,url,**kwargs):
     if r.status_code!=200:
         try:code=error_code(r.json())
         except (ValueError,AttributeError):code='코드 없음'
+        if provider.startswith('KIS') and code=='EGW00133':raise TokenCooldownError()
         if provider.startswith('KIS') and (code=='EGW00201' or r.status_code==429):raise RateLimitError()
         help_text='인증키와 해당 서비스 이용 승인을 확인하세요.' if provider=='KRX' else '모의투자 KEY·SECRET과 모의투자 신청 상태를 확인하세요.'
         if provider=='KIS 실전 재무':help_text='실전용 KEY·SECRET과 실전 API 이용 신청 상태를 확인하세요.'
@@ -103,14 +110,35 @@ class KIS:
         self._gate=gate_for(key)
     def token(self):
         if not self.key or not self.secret:raise APIError(f'{self.PROVIDER}: {self.ENV_LABEL} KEY·SECRET을 Secrets에 설정하세요.')
-        if self._token and time.time()<self._expires:return self._token
-        if time.monotonic()-self._auth_attempt<65:raise APIError('KIS: 토큰 재발급 간격입니다. 65초 후 새로고침하세요.')
-        self._auth_attempt=time.monotonic()
-        self._gate.wait()
-        body,_=request(self.PROVIDER,'POST',self.BASE+'/oauth2/tokenP',json={'grant_type':'client_credentials','appkey':self.key,'appsecret':self.secret})
-        if not body.get('access_token'):raise APIError(f'{self.PROVIDER}: 토큰 인증 실패 / {error_code(body)}. {self.ENV_LABEL} 키와 신청 상태를 확인하세요.')
-        self._token=body['access_token'];self._expires=time.time()+max(0,number(body.get('expires_in',3600))-120)
-        return self._token
+        state=state_for(self.BASE,self.key,self.secret)
+        # Serialize token issuance across tabs and sessions in this server process.
+        with state.lock:
+            if state.token and time.time()<state.expires:
+                self._token=state.token;self._expires=state.expires
+                return state.token
+            remaining=max(state.next_attempt,self._auth_attempt+65)-time.monotonic()
+            if remaining>0:raise TokenCooldownError(remaining)
+            self._auth_attempt=time.monotonic();state.next_attempt=self._auth_attempt+65
+            self._gate.wait()
+            try:
+                body,_=request(self.PROVIDER,'POST',self.BASE+'/oauth2/tokenP',json={'grant_type':'client_credentials','appkey':self.key,'appsecret':self.secret})
+                if error_code(body)=='EGW00133':raise TokenCooldownError()
+            except TokenCooldownError:
+                state.next_attempt=time.monotonic()+65
+                raise
+            if not body.get('access_token'):raise APIError(f'{self.PROVIDER}: 토큰 인증 실패 / {error_code(body)}. {self.ENV_LABEL} 키와 신청 상태를 확인하세요.')
+            lifetime=number(body.get('expires_in',3600))
+            if not math.isfinite(lifetime) or lifetime<=120:raise APIError('KIS: 토큰 유효기간 응답 오류.')
+            state.token=body['access_token'];state.expires=time.time()+lifetime-120
+            self._token=state.token;self._expires=state.expires
+            return state.token
+
+    def invalidate_token(self):
+        state=state_for(self.BASE,self.key,self.secret)
+        with state.lock:
+            if state.token==self._token:state.token='';state.expires=0.
+            self._token='';self._expires=0.
+
     def get(self,path,tr,params,cont=''):
         token=self.token()
         for attempt in range(4):
@@ -120,7 +148,7 @@ class KIS:
                 if str(body.get('rt_cd'))!='0':
                     code=error_code(body)
                     if code=='EGW00201':raise RateLimitError()
-                    if code in ('EGW00123','EGW00121'):self._token=''
+                    if code in ('EGW00123','EGW00121'):self.invalidate_token()
                     raise APIError(f'{self.PROVIDER}: 조회 거부 / {code}. {self.ENV_LABEL} API 이용 신청·설정·호출 한도를 확인하세요.')
                 return body,{str(k).lower():v for k,v in headers.items()}
             except RateLimitError:

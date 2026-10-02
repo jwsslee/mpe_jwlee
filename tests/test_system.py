@@ -64,7 +64,7 @@ def test_kis_token_reuse_and_cooldown(monkeypatch):
     monkeypatch.setattr('core.api.request',response)
     client=KIS('key','secret')
     assert client.token()==client.token()=='test-token' and len(calls)==1
-    client._token=''
+    client.invalidate_token()
     with pytest.raises(APIError):client.token()
 
 

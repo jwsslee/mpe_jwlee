@@ -4,6 +4,7 @@ import requests
 import pytest
 from core.api import KIS,APIError,RateLimitError,request
 from core.rate_limit import RequestGate,gate_for
+from core.token_cache import state_for
 
 class Clock:
     def __init__(self):self.value=10.;self.sleeps=[]
@@ -13,7 +14,8 @@ class Clock:
 
 def client():
     clock=Clock();c=KIS('rate-test-key','s')
-    c._token='token';c._expires=time.time()+3600
+    state=state_for(c.BASE,c.key,c.secret)
+    state.token='token';state.expires=time.time()+3600
     c._gate=RequestGate(clock=clock.now,sleep=clock.sleep)
     return c,clock
 
