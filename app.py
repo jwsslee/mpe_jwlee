@@ -75,8 +75,13 @@ def refresh(key):
     return clicked
 
 
+def current_quote(code,force=False):
+    # Both screens use the exact same provider, query and session cache key.
+    return load('KIS 현재가 '+code,lambda:kis.quote(code),60,force)
+
+
 def market_page():
-    heading('반도체 소부장 · 시장 현황','KRX 최근 일별매매정보를 우선 사용하고, 없는 종목은 KIS 현재가로 조회합니다.')
+    heading('반도체 소부장 · 시장 현황','기업 상세와 동일한 KIS 현재가·전일 대비 등락률을 사용합니다.')
     selected=st.multiselect('관심기업',list(COMPANIES),default=[c for c in DEFAULT_CODES if c in COMPANIES],format_func=lambda c:f'{COMPANIES[c]} · {c}')
     force=refresh('market')
     if not selected:st.info('관심기업을 선택하세요.');return
@@ -87,32 +92,36 @@ def market_page():
                 e=load('KRX '+market,lambda m=market:KRX(settings.krx).latest(m),900,force)
             entries.append((market,e))
             if 'data' in e:frames.append(e['data'])
-    else:st.info('KRX 키가 없어 KIS로 관심기업 시세를 조회합니다.')
+    else:st.caption('KRX 일별 참고자료는 키 미설정으로 조회하지 않습니다.')
     krx=pd.concat(frames,ignore_index=True) if frames else pd.DataFrame(columns=['code'])
     rows=[];failures=[];skip_kis=False
     bar=st.progress(0.,text='관심기업 확인 중')
     for i,code in enumerate(selected):
-        match=krx[krx.code==code]
-        if not match.empty:rows.append(match.iloc[-1].to_dict())
-        elif not skip_kis:
-            e=load('KIS 현재가 '+code,lambda c=code:kis.quote(c),60,force)
-            if 'data' in e:rows.append(dict(e['data'],name=COMPANIES[code]))
-            if e.get('error'):
-                failures.append((code,e['error']))
-                # Stop batch after the first failure; avoid repeated rejected requests.
-                skip_kis=True
+        deferred=skip_kis
+        e=cache.get('KIS 현재가 '+code,{}) if deferred else current_quote(code,force)
+        if 'data' in e:
+            state='이전 성공 자료 · 이번 조회 보류' if deferred else '이전 성공 자료 · 갱신 실패' if e.get('error') else '정상'
+            rows.append(dict(e['data'],name=COMPANIES[code],quote_status=state))
+        if not deferred and e.get('error'):
+            failures.append((code,e['error']))
+            skip_kis=True
         bar.progress((i+1)/len(selected),text=f'관심기업 {i+1}/{len(selected)} 확인')
     bar.empty()
     for label,e in entries:report(e,'KRX '+label)
     for code,error in failures:st.warning(COMPANIES[code]+' — '+error+' 연속 오류를 피하기 위해 나머지 KIS 일괄 조회는 중단했습니다.')
+    reference=krx[krx.code.isin(selected)]
+    if not reference.empty:
+        with st.expander('KRX 일별 참고자료 · KIS 현재가와 별도 기준'):
+            st.caption('표시된 자료 기준일의 종가와 직전 거래일 대비 등락률입니다. 아래 KIS 현재가와 기준일·조회 시각이 다를 수 있습니다.')
+            table(reference.reindex(columns=['name','code','price','change_pct','source','asof','fetched']))
     if not rows:
-        st.error('시세를 가져오지 못했습니다. 연결 진단에서 기관별 설정과 실패 원인을 확인하세요.');return
+        st.error('KIS 현재가를 가져오지 못했습니다. 다른 기준의 KRX 값으로 대체하지 않습니다. 연결 진단을 확인하세요.');return
     df=pd.DataFrame(rows)
     cards([('시세 수집',f'{len(df)} / {len(selected)}'),('상승',str(int((df.change_pct>0).sum()))+'개'),('하락',str(int((df.change_pct<0).sum()))+'개'),('거래대금 합계',fmt(df.turnover.sum(min_count=1),'억',1e8))])
     if len(df)<len(selected):st.warning('일부 종목 미수집: '+', '.join(COMPANIES[c] for c in selected if c not in df.code.values))
-    st.caption('KRX 종가와 KIS 조회 시점 시세는 기준이 다를 수 있습니다. 표의 출처·자료 기준·수집시각을 함께 확인하세요.')
-    plot(px.bar(df.sort_values('change_pct'),x='name',y='change_pct',labels={'name':'기업','change_pct':'등락률(%)'}))
-    columns=['name','code','price','change_pct','volume','turnover','market_cap','source','asof','fetched']
+    st.caption('등락률은 KIS 제공 전일 대비 값입니다. 기업 상세와 동일한 종목별 캐시를 사용합니다. 갱신 전후에는 값이 달라질 수 있으므로 수집시각을 함께 확인하세요.')
+    plot(px.bar(df.sort_values('change_pct'),x='name',y='change_pct',labels={'name':'기업','change_pct':'전일 대비 등락률(%)'}))
+    columns=['name','code','price','change_pct','volume','turnover','market_cap','source','asof','fetched','quote_status']
     table(df.reindex(columns=columns))
 
 
@@ -144,11 +153,12 @@ def company_page():
         table(info.assign(products=info.products.str.replace('|',' · ',regex=False)))
         st.caption('이전 조사 기반 참고 정보 · API 시세와 별도 관리')
     force=refresh('company')
-    with st.spinner('KIS 현재가 조회 중…'):q=load('KIS 현재가 '+code,lambda:kis.quote(code),60,force)
+    with st.spinner('KIS 현재가 조회 중…'):q=current_quote(code,force)
     report(q,'현재가')
     if 'data' in q:
         d=q['data']
-        cards([('현재가',fmt(d['price'],'원')),('등락률',fmt(d['change_pct'],'%')),('시가총액',fmt(d['market_cap'],'억',1e8)),('거래대금',fmt(d['turnover'],'억',1e8))])
+        cards([('현재가',fmt(d['price'],'원')),('전일 대비 등락률',fmt(d['change_pct'],'%')),('시가총액',fmt(d['market_cap'],'억',1e8)),('거래대금',fmt(d['turnover'],'억',1e8))])
+        st.caption('시장·관심기업과 동일한 KIS 조회 결과입니다. 시세 수집시각: '+str(d.get('fetched',q.get('success_at','—'))))
         st.subheader('API 제공 지표')
         table(pd.DataFrame([d]).reindex(columns=['per','pbr','eps','bps','foreign_pct','high_52','low_52']))
         st.caption('PER·PBR·EPS·BPS는 KIS 응답값입니다. 재무 기준기간·연결 여부가 이 응답에 없어 별도 실적 분석으로 해석하지 않습니다. 0 이하 PER·PBR은 미제공으로 처리합니다.')
