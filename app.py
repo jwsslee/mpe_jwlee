@@ -11,6 +11,7 @@ import numpy as np
 import pandas as pd
 import plotly.express as px
 import streamlit as st
+from mpe.config import resolve
 from mpe.data import companies,empty,demo_data,validate,merge,SCHEMAS,export_bundle,import_bundle
 from mpe.analytics import snapshot,ratio,momentum_backtest
 from mpe.connectors import KISDemo,KRX,PublicData,APIError,number
@@ -19,10 +20,15 @@ from mpe.ui import style,heading,cards,fmt,table,plot,provenance,COLORS,LABELS
 st.set_page_config(page_title='이종완 · 반도체 소부장',page_icon='◈',layout='wide')
 style()
 
+def secret_info(section,key,env=''):
+    try:
+        return resolve(st.secrets,section,key,os.environ,env)
+    except FileNotFoundError:
+        return resolve({},section,key,os.environ,env)
+
+
 def secret(section,key,env=''):
-    if env and os.getenv(env):return os.getenv(env)
-    try:return str(st.secrets[section][key]) if section else str(st.secrets[key])
-    except (KeyError,FileNotFoundError):return ''
+    return secret_info(section,key,env)[0]
 
 def auth():
     password=secret('','APP_PASSWORD','APP_PASSWORD')
@@ -71,6 +77,26 @@ def pick(key='company'):
 def source_api(section,key,env):
     own=st.session_state.get('credentials',{}).get(section,{}).get(key,'')
     return own or (secret(section,key,env) if trusted else '')
+
+def connection_diagnostics(only_kis=False):
+    fields=[('kis','app_key','KIS_APP_KEY','모의투자 KEY'),
+            ('kis','app_secret','KIS_APP_SECRET','모의투자 SECRET'),
+            ('kis','cano','KIS_CANO','계좌 앞 8자리'),
+            ('kis','acnt_prdt_cd','KIS_ACNT_PRDT_CD','계좌 상품코드'),
+            ('krx','api_key','KRX_API_KEY','KRX 인증키'),
+            ('public_data','service_key','PUBLIC_DATA_KEY','공공데이터 인증키')]
+    rows=[]
+    for section,key,env,label in fields:
+        if only_kis and section!='kis':continue
+        own=st.session_state.get('credentials',{}).get(section,{}).get(key,'')
+        value,where=(own,'현재 세션') if own else secret_info(section,key,env)
+        state='인식됨' if value else '미설정'
+        if value and not own and not trusted:state='로그인 필요'
+        if not value and key=='acnt_prdt_cd':state='기본값 01';where='기본값'
+        rows.append({'항목':label,'설정 상태':state,'읽은 위치':where or '—'})
+    table(pd.DataFrame(rows))
+    st.caption('설정 이름의 인식 결과입니다. 키의 유효성·서비스 승인은 실제 조회에서 확인합니다. 값은 표시하지 않습니다.')
+
 
 def kis_client():
     config=[source_api('kis','app_key','KIS_APP_KEY'),source_api('kis','app_secret','KIS_APP_SECRET'),source_api('kis','cano','KIS_CANO'),source_api('kis','acnt_prdt_cd','KIS_ACNT_PRDT_CD') or '01']
@@ -260,7 +286,10 @@ def scenario_page():
 
 def portfolio_page():
     heading('모의투자 계좌','한국투자증권 모의계좌 · 국내주식 보유 현황')
-    st.info('모의투자 전용 잔고 조회입니다. 데이터 관리에서 KEY·SECRET과 계좌 앞 8자리·상품코드 2자리를 설정하세요.')
+    st.info('Streamlit Secrets의 모의투자 키와 계좌를 읽습니다. 아래 설정 상태를 확인한 뒤 잔고 새로고침을 누르세요.')
+    connection_diagnostics(only_kis=True)
+    if not source_api('kis','app_key','KIS_APP_KEY') or not source_api('kis','app_secret','KIS_APP_SECRET'):
+        st.warning('Secrets에서 모의투자 키를 찾지 못했습니다. 데이터 관리 → 연결 설정의 예시와 항목 이름을 확인하세요. Secrets 저장 후 앱을 Reboot 해주세요.')
     if demo:st.caption('계좌 화면은 가상 예시를 사용하지 않습니다. 아래는 연결한 모의계좌의 실제 응답만 표시합니다.')
     col1,col2=st.columns([1,4])
     if col1.button('잔고 새로고침',type='primary'):
@@ -313,8 +342,8 @@ def settings_page():
         if st.button('세션 키 · 계좌 결과 삭제'):
             for k in ['credentials','kis_client','kis_config','portfolio']:st.session_state.pop(k,None)
             st.success('세션 입력을 지웠습니다. 서버 Secrets는 변경되지 않습니다.')
-        status=pd.DataFrame([{'연결':'KRX','키 설정':bool(source_api('krx','api_key','KRX_API_KEY')),'검증':'조회 실행 시 확인'},{'연결':'공공데이터','키 설정':bool(source_api('public_data','service_key','PUBLIC_DATA_KEY')),'검증':'서비스별 활용신청 필요'},{'연결':'KIS 모의','키 설정':bool(source_api('kis','app_key','KIS_APP_KEY') and source_api('kis','app_secret','KIS_APP_SECRET')),'검증':'잔고 조회 실행 시 확인'}])
-        table(status)
+        connection_diagnostics()
+        st.info('중첩 형식 [kis] app_key 또는 최상위 KIS_APP_KEY 형식을 지원합니다. Secrets를 수정한 후 앱을 Reboot 하세요. 시세·재무는 API 수집 탭에서 조회해야 화면에 반영됩니다.')
         st.download_button('Secrets 설정 예시 다운로드',Path('secrets.example.toml').read_text(),file_name='secrets.example.toml')
     with t2:
         st.caption('수집은 실제 데이터에만 반영됩니다. 가상 예시 모드를 끄면 확인할 수 있습니다. 키 설정만으로 서비스별 이용 승인이 보장되지는 않습니다.')

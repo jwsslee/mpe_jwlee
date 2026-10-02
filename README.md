@@ -86,3 +86,11 @@ python -m pytest -q
 - [금융위원회 기업 재무정보](https://www.data.go.kr/data/15043459/openapi.do)
 
 KRX·공공데이터·증권사의 서비스 이용 및 재배포 조건을 준수하는 개인용 앱입니다.
+
+## Secrets를 입력했는데 키 미설정으로 나오는 경우
+
+`데이터 관리 → 연결 설정` 또는 `모의투자 계좌`의 설정 상태 표에서 **읽은 위치**를 확인하세요. 값은 표시되지 않습니다. `[kis]`의 `app_key`, `app_secret`뿐 아니라 최상위 `KIS_APP_KEY`, `KIS_APP_SECRET`, `KIS_CANO`, `KIS_ACNT_PRDT_CD`도 지원합니다. KRX는 `KRX_API_KEY`, 공공데이터는 `PUBLIC_DATA_KEY` 또는 `SERVICE_KEY`를 최상위에 둘 수 있습니다. 이름은 대소문자를 구분하지 않습니다.
+
+TOML에서 `[public_data]` 이후 항목은 다음 섹션까지 모두 그 섹션에 속합니다. 최상위 형식을 쓸 경우 모든 `KIS_*`, `KRX_API_KEY`, `PUBLIC_DATA_KEY`, `APP_PASSWORD`를 **첫 번째 `[섹션]`보다 위에** 넣으세요. 계좌번호는 앞자리 0을 보존하도록 따옴표로 감쌉니다. Secrets 저장 후 Manage app에서 Reboot하고 로그인하세요.
+
+키 설정은 데이터 자동 수집을 의미하지 않습니다. 잔고는 `잔고 새로고침`, 시세·재무는 `데이터 관리 → API 수집`에서 조회합니다.
