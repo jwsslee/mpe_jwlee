@@ -387,6 +387,9 @@ def settings_page():
                     frame=attempt(lambda:KRX(source_api('krx','api_key','KRX_API_KEY')).daily(d,market,master.code.tolist()))
                 if frame is not None:save_data('prices',frame)
         elif service=='공공데이터 기간 시세':
+            with st.expander('HTTP 403 · 인증 거부 해결 안내'):
+                st.markdown('1. [금융위원회_주식시세정보](https://www.data.go.kr/data/15094808/openapi.do)의 활용신청이 승인되어 있는지 확인하세요. 다른 API의 승인만으로는 충분하지 않습니다.\n2. 해당 활용신청 상세의 **일반 인증키(Decoding)**를 Secrets의 `[public_data]` 아래 `service_key`에 입력하세요.\n3. 일시 오류일 수 있으므로 약 20분 뒤 재시도하세요. 계속되면 **마이페이지 → 데이터 활용 → OPEN API → 활용신청 현황 → 해당 API → 변경신청** 후 약 1시간 뒤 재시도하세요.\n4. 이후에도 지속되면 공공데이터포털에 문의하세요.\n\n[금융위원회 공식 403 안내](https://www.fsc.go.kr/in060501)')
+                st.caption('앱은 Encoding 키도 한 번 디코딩한 뒤 요청을 인코딩합니다. 키 값·인증된 요청 URL은 화면과 로그에 출력하지 않습니다.')
             code=pick('fetch_price');a,b=st.columns(2)
             start=a.date_input('시작일',value=asof-timedelta(days=365));end=b.date_input('종료일',value=asof)
             if st.button('기간 시세 수집'):

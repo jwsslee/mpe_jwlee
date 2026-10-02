@@ -17,7 +17,16 @@ def number(value):
 def json_request(method,url,**kwargs):
     try:
         response=requests.request(method,url,timeout=(8,30),**kwargs)
-        if response.status_code!=200:raise APIError(f'API HTTP {response.status_code}: 권한·서비스 상태를 확인하세요.')
+        if response.status_code!=200:
+            if url.startswith('https://apis.data.go.kr/') and response.status_code in (401,403):
+                raise APIError(
+                    f'공공데이터 인증 거부 (HTTP {response.status_code}). '
+                    '키는 읽었지만 서버가 요청을 거부했습니다. '
+                    '공공데이터포털에서 해당 서비스의 활용신청 승인과 일반 인증키(Decoding)를 확인하세요. '
+                    '일시 오류이면 약 20분 후 재시도하고, 계속되면 해당 API 활용신청 상세에서 변경신청 후 약 1시간 뒤 재시도하세요. '
+                    '키를 다시 저장했다면 앱을 Reboot 하세요. 이 응답만으로 해외 서버 차단 여부는 판단할 수 없습니다.'
+                )
+            raise APIError(f'API HTTP {response.status_code}: 권한·서비스 상태를 확인하세요.')
         data=response.json()
         if not isinstance(data,dict): raise APIError('API 응답 형식이 예상과 다릅니다.')
         return data,response.headers
@@ -99,7 +108,7 @@ class KRX:
 
 class PublicData:
     BASE='https://apis.data.go.kr/1160100/service/'
-    def __init__(self,key):self.key=unquote(key)
+    def __init__(self,key):self.key=unquote(str(key).strip())
     def items(self,service,operation,params):
         if not self.key:raise APIError('공공데이터포털 인증키가 필요합니다.')
         rows=[]
