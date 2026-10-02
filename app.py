@@ -11,6 +11,7 @@ import numpy as np
 import pandas as pd
 import plotly.express as px
 import streamlit as st
+from mpe.loading import load_prices
 from mpe.config import resolve
 from mpe.data import companies,empty,demo_data,validate,merge,SCHEMAS,export_bundle,import_bundle
 from mpe.analytics import snapshot,ratio,momentum_backtest
@@ -126,6 +127,33 @@ def price_chart(code):
     plot(px.line(p,x='date',y=[y,'MA20','MA60','MA120'],labels={'date':'날짜','value':'원','variable':'가격'}))
     provenance(p)
 
+def price_loader(code=None):
+    global S
+    if demo:return
+    krx=source_api('krx','api_key','KRX_API_KEY')
+    public=source_api('public_data','service_key','PUBLIC_DATA_KEY')
+    # A changed key permits a fresh attempt without storing credentials in the marker.
+    identity=hashlib.sha256((krx+'|'+public).encode()).hexdigest()
+    marker=(str(asof),code,identity)
+    attempts=st.session_state.setdefault('price_load_attempts',{})
+    selected=D['prices'] if code is None else D['prices'][D['prices'].code==code]
+    eligible=bool(krx or (public and code))
+    retry=st.button('시세 불러오기 · 새로고침',key='load_'+str(code),type='primary')
+    if retry or (selected.empty and eligible and marker not in attempts):
+        with st.spinner('실제 시세 조회 중… 휴장일에는 최근 거래일을 확인합니다.'):
+            frame,messages=load_prices(D['prices'],master,asof,krx,public,code)
+            D['prices']=frame
+            attempts[marker]=messages
+        S=snapshot(master,D,asof,basis)
+    if marker in attempts:
+        for message in attempts[marker]:
+            if '반영' in message:st.success(message)
+            else:st.warning(message)
+    elif selected.empty:
+        st.info('시세가 아직 없습니다. 설정된 KRX 키로 조회하거나 기업을 한 개 선택해 공공데이터 주가를 불러오세요.')
+    st.caption('실제 API 자료만 반영합니다. 재무·수급은 별도 수집 항목이며, 시세 조회만으로 채워지지 않습니다.')
+
+
 def overview():
     heading('이종완의 반도체 소부장\n주식투자 분석 대시보드','산업의 흐름에서 기업의 가치를 발견하다.')
     a,b,c=st.columns([1,1,2])
@@ -136,6 +164,8 @@ def overview():
     if product!='전체':f=f[f.products.str.split('|').apply(lambda xs:product in xs)]
     if group!='전체':f=f[f.group==group]
     if query:f=f[f.name.str.contains(query,regex=False)|f.code.str.contains(query,regex=False)]
+    price_loader(f.code.iloc[0] if len(f)==1 else None)
+    f=S[S.code.isin(f.code)].copy()
     cards([('분석 대상',f'{len(f)}개'),('시세 확보',f'{f.close.notna().sum()}개'),('영업이익률 중앙값',fmt(f.margin.median(),'%')),('재무 확보',f'{f.financial_date.notna().sum()}개')])
     left,right=st.columns([1.4,1])
     with left,st.container(border=True):
@@ -167,7 +197,9 @@ def process_page():
 
 def company_page():
     heading('기업 분석','사업 구조부터 재무·현금흐름·가치평가까지')
-    code=pick();c=master.set_index('code').loc[code];m=S.set_index('code').loc[code]
+    code=pick()
+    price_loader(code)
+    c=master.set_index('code').loc[code];m=S.set_index('code').loc[code]
     st.subheader(c['name']);st.write(c.business)
     st.markdown(' '.join(f'<span class="mpe-tag">{escape(v)}</span>' for v in [c['group'],c.process,c.category]),unsafe_allow_html=True)
     cards([('매출 YoY',fmt(m.get('revenue_yoy'),'%')),('영업이익률',fmt(m.get('margin'),'%')),('PER',fmt(m.get('per'),'배')),('FCF',fmt(m.get('fcf'),'억',1e8))])
